@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Currency Management System</title>
+</head>
+<body>
+    <h1>Currency Management Dashboard</h1>
+
+    <h2>Global Statistics</h2>
+    <p><strong>Total VUSD Supply:</strong> {{ total_vusd }}</p>
+    <p><strong>Total VUSD Burnt Supply:</strong> {{ vusd_burnt }}</p>
+    <p><strong>Total VKES Supply:</strong> {{ total_vkes }}</p>
+    <p><strong>Total VRQT Supply:</strong> {{ total_vrqt }}</p>
+    <p><strong>Oracle Rate:</strong> {{ oracle_rate }}</p>
+    <p><strong>Protocol Rate:</strong> {{ protocol_rate }}</p>
+    <p><strong>Flux Ratio:</strong> {{ flux_ratio }}</p>
+    <p><strong>Reserve Ratio:</strong> {{ reserve_ratio }}</p>
+    <p><strong>Flux Influence:</strong> {{ flux_influence }}</p>
+
+    <h2>Set Oracle Rate</h2>
+    <form action="{{ url_for('set_oracle_rate') }}" method="post">
+        <label for="oracle_rate">New Oracle Rate:</label>
+        <input type="number" name="oracle_rate" step="0.01" required>
+        <button type="submit">Update Oracle Rate</button>
+    </form>
+
+    <h2>User Balances</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>VUSD Balance</th>
+                <th>VKES Balance</th>
+                <th>VRQT Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.name }}</td>
+                <td>{{ user.vusd_balance }}</td>
+                <td>{{ user.vkes_balance }}</td>
+                <td>{{ user.vrqt_balance }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Transfer Assets</h2>
+    <form action="{{ url_for('transfer_asset') }}" method="post">
+        <label for="from_user">From User:</label>
+        <select name="from_user">
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="to_user">To User:</label>
+        <select name="to_user">
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="asset">Asset:</label>
+        <select name="asset">
+            <option value="vusd">VUSD</option>
+            <option value="vkes">VKES</option>
+            <option value="vrqt">VRQT</option>
+        </select>
+
+        <label for="amount">Amount:</label>
+        <input type="number" name="amount" min="1" required>
+
+        <button type="submit">Transfer</button>
+    </form>
+
+    <h2>Convert VUSD to VKES and VRQT</h2>
+    <form action="{{ url_for('convert_vusd') }}" method="post">
+        <label for="user_id">User:</label>
+        <select name="user_id">
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="amount">Amount to Convert:</label>
+        <input type="number" name="amount" min="1" required>
+
+        <button type="submit">Convert</button>
+    </form>
+
+    <h2>Convert VKES and VRQT back to VUSD</h2>
+    <form action="{{ url_for('convert_back_to_vusd') }}" method="post">
+        <label for="user_id">User:</label>
+        <select name="user_id">
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="amount">Amount of VUSD to Convert:</label>
+        <input type="number" name="amount" min="1" required>
+
+        <button type="submit">Convert Back to VUSD</button>
+    </form>
+</body>
+</html>
