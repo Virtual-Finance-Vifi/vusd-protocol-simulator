@@ -1,6 +1,70 @@
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timedelta
 
 db = SQLAlchemy()
+
+
+class LiquidityPool(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    vkes_balance = db.Column(db.Float, default=0)
+    vrqt_balance = db.Column(db.Float, default=0)
+    lock_time = db.Column(db.DateTime)
+    fee_percentage = db.Column(db.Float, default=0.003)  # 0.3% fee
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @classmethod
+    def create_pool(cls, vkes_amount: float, vrqt_amount: float, user_id: int, lock_days: int = 7):
+        pool = cls(
+            vkes_balance=vkes_amount,
+            vrqt_balance=vrqt_amount,
+            lock_time=datetime.now() + timedelta(days=lock_days),
+            user_id=user_id
+        )
+        db.session.add(pool)
+        db.session.commit()
+        return pool
+
+    def swap_vrqt_to_vkes(self, vrqt_amount: float) -> float:
+        fee = vrqt_amount * self.fee_percentage
+        vrqt_after_fee = vrqt_amount - fee
+        
+        # Calculate vKES output using constant product formula
+        k = self.vkes_balance * self.vrqt_balance
+        new_vrqt = self.vrqt_balance + vrqt_after_fee
+        new_vkes = k / new_vrqt
+        vkes_out = self.vkes_balance - new_vkes
+        
+        # Update pool balances
+        self.vrqt_balance = new_vrqt
+        self.vkes_balance = new_vkes
+        db.session.commit()
+        
+        return vkes_out
+
+    def swap_vkes_to_vrqt(self, vkes_amount: float) -> float:
+        fee = vkes_amount * self.fee_percentage
+        vkes_after_fee = vkes_amount - fee
+        
+        # Calculate vRQT output using constant product formula
+        k = self.vkes_balance * self.vrqt_balance
+        new_vkes = self.vkes_balance + vkes_after_fee
+        new_vrqt = k / new_vkes
+        vrqt_out = self.vrqt_balance - new_vrqt
+        
+        # Update pool balances
+        self.vkes_balance = new_vkes
+        self.vrqt_balance = new_vrqt
+        db.session.commit()
+        
+        return vrqt_out
+
+    def is_locked(self) -> bool:
+        return datetime.now() < self.lock_time
+        
+    def get_pool_value(self) -> float:
+        """Calculate total pool value in vUSD terms"""
+        return self.vrqt_balance  # 1:1 with vUSD
 
 
 class User(db.Model):
@@ -9,6 +73,10 @@ class User(db.Model):
     vusd_balance = db.Column(db.Float, default=0)
     vkes_balance = db.Column(db.Float, default=0)
     vrqt_balance = db.Column(db.Float, default=0)
+    pool = db.relationship('LiquidityPool', backref='user', lazy=True)
+    pool_vkes = db.Column(db.Float, default=0)  # Locked in pool
+    pool_vrqt = db.Column(db.Float, default=0)  # Locked in pool
+    yield_vusd = db.Column(db.Float, default=0)  # Accumulated yield
 
     @classmethod
     def transfer_asset(cls, from_user_id, to_user_id, asset, amount):
@@ -79,6 +147,73 @@ class User(db.Model):
                 return True
             else:
                 return False
+
+    def provide_liquidity(self, vkes_amount: float, vrqt_amount: float) -> LiquidityPool:
+        if self.vkes_balance >= vkes_amount and self.vrqt_balance >= vrqt_amount:
+            # Create pool with user_id
+            pool = LiquidityPool.create_pool(
+                vkes_amount=vkes_amount,
+                vrqt_amount=vrqt_amount,
+                user_id=self.id
+            )
+            
+            # Update user balances
+            self.vkes_balance -= vkes_amount
+            self.vrqt_balance -= vrqt_amount
+            self.pool_vkes += vkes_amount
+            self.pool_vrqt += vrqt_amount
+            
+            db.session.commit()
+            return pool
+        return None
+
+    def calculate_yield(self, apy: float = 0.05):
+        """Calculate weekly yield based on locked assets"""
+        weekly_rate = apy / 52
+        total_locked_value = self.pool_vrqt  # Assuming 1:1 with USD
+        self.yield_vusd += total_locked_value * weekly_rate
+        db.session.commit()
+
+    def withdraw_liquidity(self, pool_id: int) -> bool:
+        """Withdraw liquidity from a pool after lock period"""
+        pool = LiquidityPool.query.get(pool_id)
+        if not pool or datetime.now() < pool.lock_time:
+            return False
+            
+        # Return assets to user
+        self.vkes_balance += pool.vkes_balance
+        self.vrqt_balance += pool.vrqt_balance
+        
+        # Clear pool balances
+        self.pool_vkes -= pool.vkes_balance
+        self.pool_vrqt -= pool.vrqt_balance
+        
+        # Delete pool
+        db.session.delete(pool)
+        db.session.commit()
+        return True
+        
+    def perform_swap(self, pool_id: int, asset: str, amount: float) -> float:
+        """Perform swap in liquidity pool"""
+        pool = LiquidityPool.query.get(pool_id)
+        if not pool:
+            return 0
+            
+        if asset == 'vrqt' and self.vrqt_balance >= amount:
+            self.vrqt_balance -= amount
+            vkes_received = pool.swap_vrqt_to_vkes(amount)
+            self.vkes_balance += vkes_received
+            db.session.commit()
+            return vkes_received
+            
+        elif asset == 'vkes' and self.vkes_balance >= amount:
+            self.vkes_balance -= amount
+            vrqt_received = pool.swap_vkes_to_vrqt(amount)
+            self.vrqt_balance += vrqt_received
+            db.session.commit()
+            return vrqt_received
+            
+        return 0
 
 
 class Config(db.Model):

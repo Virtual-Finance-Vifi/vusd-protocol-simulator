@@ -106,5 +106,76 @@
 
         <button type="submit">Convert Back to VUSD</button>
     </form>
+
+    <h2>Liquidity Pools</h2>
+
+    <!-- Display any errors -->
+    {% if request.args.get('error') %}
+    <div class="error">
+        Error: {{ request.args.get('error') }}
+    </div>
+    {% endif %}
+
+    <!-- User Selection for Swaps -->
+    <div class="user-select">
+        <h3>Select Trading User</h3>
+        <select id="trading-user">
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.name }} (vKES: {{ user.vkes_balance }}, vRQT: {{ user.vrqt_balance }})</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    {% for user in users %}
+    <div class="user-pools">
+        <h3>{{ user.name }}'s Pools</h3>
+        <!-- Pool Creation Form -->
+        <form action="{{ url_for('create_pool') }}" method="post">
+            <input type="hidden" name="user_id" value="{{ user.id }}">
+            <input type="number" step="0.01" name="vkes_amount" placeholder="vKES amount">
+            <input type="number" step="0.01" name="vrqt_amount" placeholder="vRQT amount">
+            <input type="number" name="lock_days" placeholder="Lock days" value="7">
+            <button type="submit">Create Pool</button>
+        </form>
+
+        <!-- Show user's pools -->
+        {% for pool in pools if pool.user_id == user.id %}
+        <div class="pool">
+            <p>Pool #{{ pool.id }}</p>
+            <p>vKES: {{ "%.2f"|format(pool.vkes_balance) }}</p>
+            <p>vRQT: {{ "%.2f"|format(pool.vrqt_balance) }}</p>
+            <p>Locked until: {{ pool.lock_time.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+            
+            <!-- Swap Form -->
+            <form action="{{ url_for('swap_assets') }}" method="post" class="swap-form">
+                <input type="hidden" name="pool_id" value="{{ pool.id }}">
+                <select name="user_id" required>
+                    <option value="">Select Trading User</option>
+                    {% for trader in users %}
+                    <option value="{{ trader.id }}">{{ trader.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="number" step="0.01" name="amount" placeholder="Amount" required>
+                <select name="asset" required>
+                    <option value="vrqt">vRQT to vKES</option>
+                    <option value="vkes">vKES to vRQT</option>
+                </select>
+                <button type="submit">Swap</button>
+            </form>
+            
+            <!-- Withdraw Form -->
+            <form action="{{ url_for('withdraw_pool', pool_id=pool.id) }}" method="post">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <button type="submit">Withdraw</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+
+    <!-- Calculate Yield Button -->
+    <form action="{{ url_for('calculate_yields') }}" method="post">
+        <button type="submit">Calculate Yields</button>
+    </form>
 </body>
 </html>

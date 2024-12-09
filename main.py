@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for
-from models import db, User, Config, initialize_db
+from models import db, User, Config, initialize_db, LiquidityPool
 
 
 def calculate_protocol_rate():
@@ -31,6 +31,7 @@ def create_app():
     @app.route('/')
     def index():
         users = User.query.all()
+        pools = LiquidityPool.query.all()
         total_vusd, total_vkes, total_vrqt = calculate_total_supplies()
         oracle_rate = Config.get_oracle_rate()
         protocol_rate = calculate_protocol_rate()
@@ -43,6 +44,7 @@ def create_app():
 
         return render_template('index.html',
                              users=users,
+                             pools=pools,
                              total_vusd=total_vusd,
                              total_vkes=total_vkes,
                              total_vrqt=total_vrqt,
@@ -117,6 +119,62 @@ def create_app():
             return redirect(
                 url_for('index', error="Insufficient balance to convert"))
 
+        return redirect(url_for('index'))
+
+    @app.route('/pool/create', methods=['POST'])
+    def create_pool():
+        user_id = request.form.get('user_id')
+        vkes_amount = float(request.form.get('vkes_amount'))
+        vrqt_amount = float(request.form.get('vrqt_amount'))
+        lock_days = int(request.form.get('lock_days', 7))
+        
+        user = User.query.get(user_id)
+        if not user:
+            return redirect(url_for('index', error="User not found"))
+        
+        pool = user.provide_liquidity(vkes_amount, vrqt_amount)
+        if not pool:
+            return redirect(url_for('index', error="Insufficient balance for pool creation"))
+        
+        return redirect(url_for('index'))
+
+    @app.route('/pool/withdraw/<int:pool_id>', methods=['POST'])
+    def withdraw_pool(pool_id):
+        user_id = request.form.get('user_id')
+        user = User.query.get(user_id)
+        
+        if not user:
+            return redirect(url_for('index', error="User not found"))
+        
+        success = user.withdraw_liquidity(pool_id)
+        if not success:
+            return redirect(url_for('index', error="Cannot withdraw: pool is locked or doesn't exist"))
+        
+        return redirect(url_for('index'))
+
+    @app.route('/pool/swap', methods=['POST'])
+    def swap_assets():
+        user_id = request.form.get('user_id')
+        pool_id = int(request.form.get('pool_id'))
+        asset = request.form.get('asset')
+        amount = float(request.form.get('amount'))
+        
+        user = User.query.get(user_id)
+        if not user:
+            return redirect(url_for('index', error="User not found"))
+        
+        received = user.perform_swap(pool_id, asset, amount)
+        if received == 0:
+            return redirect(url_for('index', error=f"Swap failed. Insufficient {asset.upper()} balance or pool liquidity"))
+        
+        return redirect(url_for('index', message=f"Swap successful. Received {received:.2f} {asset.upper()}"))
+
+    @app.route('/yield/calculate', methods=['POST'])
+    def calculate_yields():
+        """Calculate yields for all locked positions"""
+        users = User.query.all()
+        for user in users:
+            user.calculate_yield()
         return redirect(url_for('index'))
 
     return app
